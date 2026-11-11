@@ -1,7 +1,7 @@
 pipeline {
 
     agent {
-        label 'linux-python'
+        label 'linux01'
     }
 
     triggers {
