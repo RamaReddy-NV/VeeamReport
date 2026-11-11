@@ -59,6 +59,9 @@ def test_demo_report_generation(tmp_path):
     if data["summary"]:
         summary = data["summary"][0]
 
-        assert "status" in summary
         assert "tool" in summary
-        assert "jobs" in summary
+        assert "total" in summary
+        assert "success" in summary
+        assert "warning" in summary
+        assert "failed" in summary
+        assert "running" in summary

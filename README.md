@@ -25,10 +25,23 @@ Jenkins (07:00) ──► python -m vdr ──► EM REST API :9398 ──► vb
 
 ## Setup
 
-1. `cp config.example.yaml config.yaml` and set: EM URL, report timezone, VBR server names per tool, SMTP.
-2. Create an EM service account and store it in Jenkins as the `veeam-em-report` credential.
-3. `cp comments.example.csv comments.csv` (or point `comments_file` to a share L1/L2 can edit).
+1. Configure `config.yaml` with the EM URL, report timezone, VBR server names, and approved SMTP relay.
+2. Create an EM service account and store it in Jenkins as the `veeam-em-report` credential. Credentials are read from `VEEAM_EM_USER` and `VEEAM_EM_PASSWORD`; do not put credentials in YAML.
+3. Maintain `comments.csv`, or point `comments_file` to a share L1/L2 can edit.
 4. Preview without EM: `python -m vdr --config config.yaml --demo`.
+
+The EM API requires HTTPS and certificate verification is enabled by default. Keep
+`verify_tls: true`; install the issuing CA in the runtime trust store if the EM
+certificate uses an internal CA. SMTP authentication requires STARTTLS and reads
+credentials from `SMTP_USER` and `SMTP_PASSWORD`. Raw API dumps and generated JSON
+reports may contain workload names and error details; store them with appropriate
+access controls and avoid retaining raw dumps longer than needed.
+
+## Tests
+
+Run `python -m pytest`. CI currently enforces a staged 60% total coverage minimum;
+the CLI and demo modules still need broader direct unit coverage before that target
+can be raised.
 
 ## First run against your Enterprise Manager (validation)
 

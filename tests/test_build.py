@@ -6,11 +6,13 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from vdr.build import (
+    Comment,
     load_comments,
     report_window,
     status_of,
 )
 from vdr.build import ReportBuilder
+from vdr.model import Collected, Job, JobSession, Repo, Task
 
 
 @pytest.mark.parametrize(
@@ -206,3 +208,145 @@ def test_location_from_job_name():
         "LON-Nightly",
         "vbr01",
     ) == "LON"
+
+
+def test_build_summary_failures_comments_and_orphan_warning():
+    builder = create_builder()
+    builder.history_fn = lambda server, job, obj: [
+        Task(
+            "history",
+            server,
+            job,
+            obj,
+            datetime(2026, 1, 1, tzinfo=timezone.utc),
+            None,
+            "Stopped",
+            "Failed",
+        ),
+        Task(
+            "history",
+            server,
+            job,
+            obj,
+            datetime(2025, 12, 31, tzinfo=timezone.utc),
+            None,
+            "Stopped",
+            "Failed",
+        ),
+        Task(
+            "history",
+            server,
+            job,
+            obj,
+            datetime(2025, 12, 30, tzinfo=timezone.utc),
+            None,
+            "Stopped",
+            "Success",
+        ),
+    ]
+    session = JobSession(
+        "urn:veeam:BackupJobSession:1",
+        "vbr01",
+        "PAR-Backup",
+        "vmware backup",
+        datetime(2026, 1, 1, 10, tzinfo=timezone.utc),
+        None,
+        "Stopped",
+        "Success",
+    )
+    retry = JobSession(
+        "urn:veeam:BackupJobSession:2",
+        "vbr01",
+        "PAR-Backup",
+        "vmware backup",
+        datetime(2026, 1, 2, 1, tzinfo=timezone.utc),
+        None,
+        "Stopped",
+        "Success",
+        is_retry=True,
+    )
+    tasks = [
+        Task(session.uid, "vbr01", "PAR-Backup", "vm-success",
+             datetime(2026, 1, 1, 11, tzinfo=timezone.utc), None, "Stopped", "Failed"),
+        Task(retry.uid, "vbr01", "PAR-Backup", "vm-success",
+             datetime(2026, 1, 2, 1, tzinfo=timezone.utc), None, "Stopped", "Success"),
+        Task(session.uid, "vbr01", "PAR-Backup", "vm-failed",
+             datetime(2026, 1, 1, 12, tzinfo=timezone.utc), None, "Stopped", "Failed",
+             "first error\nadditional details"),
+        Task("", "vbr01", "PAR-Backup", "orphan",
+             datetime(2026, 1, 1, 12, tzinfo=timezone.utc), None, "Stopped", "Success"),
+    ]
+    comments = [
+        Comment("summary", "PROD", "*", "*", "", "Reviewed", None),
+        Comment("failure", "PROD", "PAR-*", "vm-failed", "Restarted", "Resolved", None),
+        Comment("note", "*", "*", "*", "", "Maintenance completed", None),
+    ]
+
+    model = builder.build(
+        Collected([session, retry], [], tasks, [], []),
+        comments,
+    )
+
+    assert model["summary"][0] == {
+        "tool": "Veeam Prod",
+        "total": 2,
+        "success": 1,
+        "warning": 0,
+        "failed": 1,
+        "running": 0,
+        "comment": "Reviewed",
+    }
+    assert model["failures"][0]["server"] == "vm-failed"
+    assert model["failures"][0]["consecutive"] == 2
+    assert model["failures"][0]["mitigation"] == "Restarted"
+    assert model["failures"][0]["error"] == "first error"
+    assert model["notes"] == ["Maintenance completed"]
+    assert model["data_warnings"] == [
+        "1 task sessions had no parent job session and were skipped"
+    ]
+
+
+def test_backup_copy_replication_attention_and_repository_alerts():
+    cfg = build_cfg()
+    cfg["job_types"]["backup_copy"] = ["BackupSync"]
+    cfg["jobs_check"] = {
+        "flag_disabled": True,
+        "flag_not_run": True,
+        "ignore_regex": ["^TEST-"],
+    }
+    cfg["repositories"] = {"free_space_warning_pct": 10}
+    builder = ReportBuilder(
+        cfg=cfg,
+        report_date=date(2026, 1, 1),
+        now=datetime.now(timezone.utc),
+    )
+    created = datetime(2026, 1, 1, 10, tzinfo=timezone.utc)
+    copy = JobSession("copy", "vbr01", "PAR-Copy", "BackupSync",
+                      created, None, "Stopped", "Failed")
+    replica = JobSession("replica", "vbr01", "PAR-Replica", "Replica",
+                         created, None, "Stopped", "Success")
+    data = Collected(
+        [copy],
+        [replica],
+        [],
+        [
+            Job("vbr01", "PAR-Disabled", "Backup", True, False),
+            Job("vbr01", "PAR-NotRun", "Backup", True, True),
+            Job("vbr01", "TEST-Ignore", "Backup", True, True),
+        ],
+        [
+            Repo("vbr01", "low-space", 100, 5),
+            Repo("vbr01", "healthy", 100, 20),
+            Repo("vbr01", "empty", 0, 0),
+        ],
+    )
+
+    protection = builder._protection(data)
+    attention = builder._jobs_attention(data)
+    repos = builder._repos(data)
+
+    assert protection[0]["status"] == "1 job(s) failed: PAR-Copy"
+    assert protection[1]["status"] == "Healthy"
+    assert [row["job"] for row in attention] == ["PAR-Disabled", "PAR-NotRun"]
+    assert repos[0]["name"] == "low-space"
+    assert repos[0]["free_pct"] == 5.0

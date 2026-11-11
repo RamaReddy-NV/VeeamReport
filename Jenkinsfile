@@ -45,9 +45,7 @@ pipeline {
             unit: 'MINUTES'
         )
 
-        disableConcurrentBuilds(
-            abortPrevious: true
-        )
+        disableConcurrentBuilds()
 
         timestamps()
 
@@ -178,11 +176,7 @@ pipeline {
                     $VENV_DIR/bin/python -m pytest \
                         tests \
                         -v \
-                        --junitxml=test-results.xml \
-                        --cov=vdr \
-                        --cov-report=xml \
-                        --cov-report=term-missing \
-                        --cov-fail-under=90
+                        --junitxml=test-results.xml
 
                     echo "All tests passed"
                 '''

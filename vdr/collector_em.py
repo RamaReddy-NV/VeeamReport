@@ -14,6 +14,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterator, Optional
+from urllib.parse import urlsplit
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -49,7 +50,14 @@ def _job_from_session_name(name: Optional[str]) -> str:
 
 
 def _entities(payload: dict) -> list[dict]:
+    if not isinstance(payload, dict) or "Entities" not in payload:
+        raise ValueError("Enterprise Manager response is missing the Entities collection")
+
     ents = payload.get("Entities") or {}
+    if not isinstance(ents, dict):
+        if ents == []:
+            return []
+        raise ValueError("Enterprise Manager returned an invalid Entities collection")
 
     for value in ents.values():
         if isinstance(value, list):
@@ -65,7 +73,76 @@ def _entities(payload: dict) -> list[dict]:
 def _quote(value: str) -> str:
     return f'"{value}"' if re.search(r'[\s;,=<>()"]', value) else value
 
+
+def _required_timestamp(entity: dict, field: str, entity_type: str) -> datetime:
+    raw_value = entity.get(field)
+    if not isinstance(raw_value, str):
+        raw_value = None
+    try:
+        value = parse_ts(raw_value)
+    except ValueError as exc:
+        uid = entity.get("UID") or entity.get("Name") or "unknown entity"
+        raise ValueError(
+            f"{entity_type} {uid!r} has an invalid timestamp {field}"
+        ) from exc
+    if value is None:
+        uid = entity.get("UID") or entity.get("Name") or "unknown entity"
+        raise ValueError(f"{entity_type} {uid!r} is missing required timestamp {field}")
+    return value
+
+
 class EMClient:
+    def __init__(
+        self,
+        url: str,
+        user: str,
+        password: str,
+        *,
+        verify_tls: bool = True,
+        page_size: int = 1000,
+        dump_dir: Optional[Path] = None,
+    ) -> None:
+        parsed_url = urlsplit(url)
+        try:
+            valid_authority = bool(parsed_url.hostname) and parsed_url.port != 0
+        except ValueError:
+            valid_authority = False
+        if (
+            parsed_url.scheme.lower() != "https"
+            or not parsed_url.netloc
+            or not valid_authority
+            or parsed_url.username
+            or parsed_url.password
+            or parsed_url.query
+            or parsed_url.fragment
+        ):
+            raise ValueError("Enterprise Manager URL must be an HTTPS URL without embedded credentials")
+        if isinstance(page_size, bool) or not isinstance(page_size, int) or page_size < 1:
+            raise ValueError("Enterprise Manager page_size must be a positive integer")
+
+        self.base = url.rstrip("/")
+        self.timeout = 60
+        self.page_size = page_size
+        self.dump_dir = dump_dir
+        self._logon_id: Optional[str] = None
+
+        self.http = requests.Session()
+        self.http.verify = verify_tls
+        retry = Retry(
+            total=5,
+            backoff_factor=0.5,
+            status_forcelist=(429, 500, 502, 503, 504),
+            allowed_methods=frozenset({"GET"}),
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        self.http.mount("http://", adapter)
+        self.http.mount("https://", adapter)
+
+        try:
+            self._login(user, password)
+        except Exception:
+            self.http.close()
+            raise
 
     def _login(
         self,
@@ -191,6 +268,11 @@ class EMClient:
                     f"(type={qtype}, page={page})"
                 ) from exc
 
+            if not isinstance(payload, dict):
+                raise RuntimeError(
+                    f"Enterprise Manager returned an invalid response "
+                    f"(type={qtype}, page={page}): expected a JSON object"
+                )
 
             if self.dump_dir and page == 1:
                 self.dump_dir.mkdir(
@@ -254,7 +336,7 @@ class EMCollector:
             server=_link_name(e, "BackupServerReference") or "?",
             job=e.get("JobName") or _link_name(e, "JobReference") or _job_from_session_name(e.get("Name")),
             job_type=e.get("JobType") or "?",
-            created=parse_ts(e.get("CreationTimeUTC")),
+            created=_required_timestamp(e, "CreationTimeUTC", "Job session"),
             ended=parse_ts(e.get("EndTimeUTC")),
             state=e.get("State") or "",
             result=e.get("Result") or "None",
@@ -267,7 +349,7 @@ class EMCollector:
             server=_link_name(e, "BackupServerReference") or "?",
             job=_job_from_session_name(_link_name(e, "BackupJobSessionReference")),
             obj=e.get("VmDisplayName") or e.get("Name", "?").rsplit("@", 1)[0],
-            created=parse_ts(e.get("CreationTimeUTC")),
+            created=_required_timestamp(e, "CreationTimeUTC", "Task session"),
             ended=parse_ts(e.get("EndTimeUTC")),
             state=e.get("State") or "",
             result=e.get("Result") or "None",
