@@ -47,8 +47,6 @@ pipeline {
 
         disableConcurrentBuilds()
 
-        timestamps()
-
         buildDiscarder(
             logRotator(
                 daysToKeepStr: '90',
