@@ -1,0 +1,137 @@
+# ==========================================================
+# Veeam Daily Backup Report Configuration
+# ==========================================================
+# Credentials are supplied by Jenkins:
+# VEEAM_EM_USER
+# VEEAM_EM_PASSWORD
+# Optional SMTP authentication:
+# SMTP_USER
+# SMTP_PASSWORD
+# ==========================================================
+report:
+  title: "Daily Veeam Backup Report"
+  timezone: "Europe/Paris"
+  date_format: "%d/%m/%Y"
+  include_retries_after_window: true
+# ==========================================================
+# Enterprise Manager
+# ==========================================================
+enterprise_manager:
+  url: "https://veeam-em01.groupeseb.local:9398"
+  verify_tls: true
+  page_size: 1000
+# ==========================================================
+# Backup Servers / Tools
+# ==========================================================
+tools:
+  - label: "Veeam DCU"
+    short: "DCU"
+    servers:
+      - "vbr-dcu01"
+
+  - label: "Veeam Premium"
+    short: "Premium"
+    servers:
+      - "vbr-prm01"
+
+  - label: "Veeam Premium DR"
+    short: "PremiumDR"
+    servers:
+      - "vbr-prm02"
+# ==========================================================
+# Job Type Classification
+# ==========================================================
+job_types:
+  backup:
+    - "Backup"
+    - "EndpointBackup"
+    - "AgentBackup"
+    - "EpAgentBackup"
+    - "EpAgentPolicy"
+
+  backup_copy:
+    - "BackupSync"
+    - "BackupCopy"
+    - "SimpleBackupCopyPolicy"
+    - "SimpleBackupCopyWorker"
+# ==========================================================
+# Location Mapping
+# ==========================================================
+location:
+  job_name_regex: '^([A-Za-z]{3})-'
+
+  default_by_server:
+    vbr-dcu01: "FFM"
+    vbr-prm01: "PAR"
+    vbr-prm02: "PAR"
+
+  default: "UNKNOWN"
+# ==========================================================
+# Failure Reporting
+# ==========================================================
+failures:
+  collapse_all_servers: true
+  history_sample_for_all_servers: 3
+  show_error_column: true
+# ==========================================================
+# Job Validation
+# ==========================================================
+jobs_check:
+  flag_disabled: true
+  flag_not_run: true
+
+  ignore_regex:
+    - '^TEST-'
+    - '(?i)weekly'
+    - '(?i)monthly'
+# ==========================================================
+# Repository Monitoring
+# ==========================================================
+repositories:
+  free_space_warning_pct: 10
+# ==========================================================
+# Manual Comments Registry
+# ==========================================================
+comments_file: "comments.csv"
+# ==========================================================
+# SMTP Settings
+# ==========================================================
+smtp:
+  enabled: true
+  host: "smtp-relay.groupeseb.com"
+  port: 25
+  starttls: false
+
+  auth:
+    enabled: false
+
+  from: "veeam-report@groupeseb.com"
+
+  to:
+    - "svijaykumar.extern@groupeseb.com"
+
+  bcc: []
+
+  subject: "[VEEAM] Daily Backup Report - {report_date}"
+
+  body: |
+    Hello Team,
+
+    Please find below the Daily Veeam Backup Report for {report_date}.
+
+    Summary:
+
+      Backup Successes : {success_count}
+      Backup Warnings  : {warning_count}
+      Backup Failures  : {failure_count}
+
+    The detailed HTML report is included within this email.
+
+    Please review:
+      - Failed jobs
+      - Repository capacity alerts
+      - Warning jobs
+      - Disabled jobs requiring attention
+
+    Regards,
+    Veeam Reporting Service

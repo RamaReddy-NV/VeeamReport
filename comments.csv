@@ -1,0 +1,6 @@
+scope,tool,job,server,mitigation,comment,expires
+failure,Premium,JAB-B-*,*,No,Repository JAB_SL52T141 is impacted by a hardware issue. Wintel team has raised P1 Incident 233048895 and is actively working on resolution.,
+failure,Premium,ZUC-B-*,*,Yes,"Backups failed due to low space issue, we have cleared the space and re-triggered the backup",2026-10-28
+summary,DCU,,,,179 workloads completed backup successfully but reported guest processing warnings.,2026-10-27
+note,,,,,FFM_SL89Q840 and ZUC_SL05Q663 Linux repositories are experiencing I/O errors due to a VMware virtual disk communication issue; VMware team is actively working on resolution,
+note,,,,,"ZUC: All the backups have been re-triggered, currently in progress",2026-10-27

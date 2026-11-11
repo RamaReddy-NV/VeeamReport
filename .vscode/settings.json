@@ -1,0 +1,27 @@
+{
+    "explorer.compactFolders": false,
+    "explorer.decorations.colors": true,
+    "explorer.decorations.badges": true,
+    "explorer.fileNesting.enabled": false,
+    "explorer.autoReveal": "focusNoScroll",
+    "workbench.tree.indent": 20,
+    "workbench.tree.renderIndentGuides": "always",
+    "files.exclude": {
+        "**/.git": true,
+        "**/.svn": true,
+        "**/.hg": true,
+        "**/.DS_Store": true,
+        "**/Thumbs.db": true,
+        "**/__pycache__": true,
+        "**/uv.toml": true,
+        "**/.github/skills": true
+    },
+    "search.exclude": {
+        "**/__pycache__": true,
+        "**/*.pyc": true,
+        "**/node_modules": true,
+        "**/agent_env": true,
+        "**/.venv": true
+    },
+    "python.terminal.activateEnvironment": false
+}

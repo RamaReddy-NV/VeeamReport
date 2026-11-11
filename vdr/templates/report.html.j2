@@ -1,0 +1,374 @@
+{#- Outlook-safe HTML: tables + inline styles only, no external CSS. -#}
+
+{%- set th = 'background:#f2f2f2;border:1px solid #7f7f7f;padding:3px 8px;font-weight:bold;text-align:center;white-space:nowrap;' -%}
+{%- set td = 'border:1px solid #7f7f7f;padding:2px 8px;word-break:break-word;' -%}
+{%- set red = 'background:#f8cbad;color:#9c0006;font-weight:bold;' -%}
+{%- set amber = 'background:#ffeb9c;color:#7f6000;' -%}
+{%- set green = 'background:#c6efce;color:#006100;' -%}
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>{{ title }} - {{ date_str }}</title>
+</head>
+
+<body style="margin:0;padding:12px;font-family:Calibri,Arial,sans-serif;font-size:14px;color:#000;background:#ffffff;">
+
+<table role="table" cellspacing="0" cellpadding="0"
+       style="border-collapse:collapse;width:100%;max-width:1400px;">
+
+<tr>
+<td style="background:#4e8a2e;color:#ffffff;font-size:18px;font-weight:bold;text-align:center;padding:6px;">
+  {{ title | default('') | e }} - {{ date_str | default('') | e }}
+</td>
+</tr>
+
+<tr>
+<td style="font-size:11px;color:#595959;padding:3px 0 10px 0;">
+  Reporting window:
+  {{ window | default('') | e }}
+  &middot; generated
+  {{ generated | default('') | e }}
+  &middot; final result after retries
+</td>
+</tr>
+
+</table>
+
+<br><br>
+
+{# ---------------------------------------------------------------- summary #}
+
+<table role="table"
+       cellspacing="0"
+       cellpadding="0"
+       style="border-collapse:collapse;width:100%;max-width:1400px;">
+
+<tr>
+<td style="{{ th }}">Backup Tool</td>
+<td style="{{ th }}">Total protected workloads</td>
+<td style="{{ th }}">Success</td>
+<td style="{{ th }}">Warning</td>
+<td style="{{ th }}">Failed</td>
+<td style="{{ th }}">Running</td>
+<td style="{{ th }}">Comments</td>
+</tr>
+
+{%- for r in summary %}
+
+<tr>
+
+<td style="{{ td }}font-weight:bold;white-space:nowrap;">
+{{ r.tool | default('') | e }}
+</td>
+
+<td style="{{ td }}text-align:center;">
+{{ r.total }}
+</td>
+
+<td style="{{ td }}text-align:center;">
+{{ r.success }}
+</td>
+
+<td style="{{ td }}text-align:center;{{ amber if r.warning else '' }}">
+{{ r.warning }}
+</td>
+
+<td style="{{ td }}text-align:center;{{ red if r.failed else '' }}">
+{{ r.failed }}
+</td>
+
+<td style="{{ td }}text-align:center;">
+{{ r.running }}
+</td>
+
+<td style="{{ td }}">
+{{ r.comment | default('') | e }}
+</td>
+
+</tr>
+
+{%- endfor %}
+
+</table>
+
+<br><br>
+
+{# ---------------------------------------------------------------- failures #}
+
+<table role="table"
+       cellspacing="0"
+       cellpadding="0"
+       style="border-collapse:collapse;width:100%;max-width:1400px;">
+
+<tr>
+<td style="{{ th }}">Location</td>
+<td style="{{ th }}">ServerName</td>
+<td style="{{ th }}">Backup Tool</td>
+<td style="{{ th }}">Job Name</td>
+<td style="{{ th }}">Consecutive Failure</td>
+<td style="{{ th }}">Mitigation available yes/no</td>
+<td style="{{ th }}">Comments</td>
+{% if show_error_column %}
+<td style="{{ th }}">Last error (Veeam)</td>
+{% endif %}
+</tr>
+
+{%- if not failures %}
+
+<tr>
+<td colspan="{{ 8 if show_error_column else 7 }}"
+    style="{{ td }}{{ green }}text-align:center;">
+No failed workload after retries
+</td>
+</tr>
+
+{%- endif %}
+
+{%- for f in failures %}
+
+<tr>
+
+<td style="{{ td }}white-space:nowrap;">
+{{ f.location | default('') | e }}
+</td>
+
+<td style="{{ td }}white-space:nowrap;">
+{{ f.server | default('') | e }}
+</td>
+
+<td style="{{ td }}">
+{{ f.tool | default('') | e }}
+</td>
+
+<td style="{{ td }}white-space:nowrap;">
+{{ f.job | default('') | e }}
+</td>
+
+<td style="{{ td }}text-align:center;{{ red if (f.consecutive or 0) >= 3 else '' }}">
+{{ f.consecutive if f.consecutive is not none else '-' }}
+</td>
+
+<td style="{{ td }}text-align:center;">
+{{ f.mitigation | default('') | e }}
+</td>
+
+{% if f.needs_comment %}
+
+<td style="{{ td }}{{ amber }}font-style:italic;">
+Awaiting L1/L2 comment
+</td>
+
+{% else %}
+
+<td style="{{ td }}">
+{{ f.comment | default('') | e }}
+</td>
+
+{% endif %}
+
+{% if show_error_column %}
+<td style="{{ td }}font-size:12px;color:#595959;">
+{{ f.error | default('') | e }}
+</td>
+{% endif %}
+
+</tr>
+
+{%- endfor %}
+
+</table>
+
+<br><br>
+
+{# ---------------------------------------------------------------- copy / replication #}
+
+<table role="table"
+       cellspacing="0"
+       cellpadding="0"
+       style="border-collapse:collapse;">
+
+<tr>
+<td style="{{ th }}">Protection Type</td>
+{% for s in tool_shorts %}
+<td style="{{ th }}">{{ s | default('') | e }} Sessions</td>
+{% endfor %}
+<td style="{{ th }}">Status</td>
+</tr>
+
+{%- for p in protection %}
+
+<tr>
+
+<td style="{{ td }}text-align:center;white-space:nowrap;">
+{{ p.type | default('') | e }}
+</td>
+
+{% for s in tool_shorts %}
+<td style="{{ td }}text-align:center;">
+{{ p.counts.get(s, 0) }}
+</td>
+{% endfor %}
+
+<td style="{{ td }}text-align:center;{{ green if p.ok else red }}">
+{{ p.status | default('') | e }}
+</td>
+
+</tr>
+
+{%- endfor %}
+
+</table>
+
+<br><br>
+
+{# ---------------------------------------------------------------- jobs needing attention #}
+
+{% if attention %}
+
+<table role="table"
+       cellspacing="0"
+       cellpadding="0"
+       style="border-collapse:collapse;">
+
+<tr>
+<td style="{{ th }}" colspan="4">
+Jobs to check (disabled or did not run)
+</td>
+</tr>
+
+<tr>
+<td style="{{ th }}">Backup Tool</td>
+<td style="{{ th }}">VBR server</td>
+<td style="{{ th }}">Job Name</td>
+<td style="{{ th }}">Issue</td>
+</tr>
+
+{% for a in attention %}
+
+<tr>
+
+<td style="{{ td }}">
+{{ a.tool | default('') | e }}
+</td>
+
+<td style="{{ td }}">
+{{ a.vbr | default('') | e }}
+</td>
+
+<td style="{{ td }}">
+{{ a.job | default('') | e }}
+</td>
+
+<td style="{{ td }}{{ amber }}">
+{{ a.issue | default('') | e }}
+</td>
+
+</tr>
+
+{% endfor %}
+
+</table>
+
+<br>
+
+{% endif %}
+
+<br><br>
+
+{# ---------------------------------------------------------------- repositories #}
+
+{% if repos %}
+
+<table role="table"
+       cellspacing="0"
+       cellpadding="0"
+       style="border-collapse:collapse;">
+
+<tr>
+<td style="{{ th }}" colspan="4">
+Repositories below {{ repo_threshold }}% free space
+</td>
+</tr>
+
+<tr>
+<td style="{{ th }}">Backup Tool</td>
+<td style="{{ th }}">Repository</td>
+<td style="{{ th }}">Free</td>
+<td style="{{ th }}">Capacity</td>
+</tr>
+
+{% for r in repos %}
+
+<tr>
+
+<td style="{{ td }}">
+{{ r.tool | default('') | e }}
+</td>
+
+<td style="{{ td }}">
+{{ r.name | default('') | e }}
+</td>
+
+<td style="{{ td }}text-align:right;{{ red if r.free_pct < 5 else amber }}">
+{{ r.free_pct }}% ({{ r.free_tb }} TB)
+</td>
+
+<td style="{{ td }}text-align:right;">
+{{ r.capacity_tb }} TB
+</td>
+
+</tr>
+
+{% endfor %}
+
+</table>
+
+<br>
+
+{% endif %}
+
+<br><br>
+
+{# ---------------------------------------------------------------- notes #}
+
+{% for n in notes %}
+<div style="padding:2px 0;">
+{{ n | default('') | e }}
+</div>
+{% endfor %}
+
+<br><br>
+
+{% if data_warnings %}
+
+<div style="margin-top:14px;font-size:11px;color:#9c5700;">
+Data quality:
+{{ data_warnings | map('e') | join(' · ') }}
+</div>
+
+{% endif %}
+
+<hr style="
+    margin-top:20px;
+    border:none;
+    border-top:1px solid #cccccc;">
+
+<div style="
+    margin-top:10px;
+    font-size:11px;
+    color:#666666;">
+
+Generated automatically by
+VDR Reporting Service.
+
+Please review any failed backup jobs,
+repository capacity warnings,
+disabled jobs,
+and Veeam Enterprise Manager alerts.
+
+</div>
+
+</body>
+</html>
