@@ -1,0 +1,165 @@
+pipeline {
+    agent {
+        label 'linux01'
+    }
+
+    parameters {
+        booleanParam(
+            name: 'RUN_EM_INTEGRATION',
+            defaultValue: false,
+            description: 'Run checks against the live Enterprise Manager'
+        )
+        string(
+            name: 'EM_INTEGRATION_REPORT_DATE',
+            defaultValue: '',
+            description: 'YYYY-MM-DD, empty = yesterday in report timezone'
+        )
+        string(
+            name: 'EM_INTEGRATION_RETRY_JOB',
+            defaultValue: '',
+            description: 'Optional exact job name expected to have an after-midnight retry'
+        )
+        string(
+            name: 'EM_INTEGRATION_DISABLED_JOB',
+            defaultValue: '',
+            description: 'Optional exact name of a disabled scheduled job'
+        )
+        string(
+            name: 'EM_INTEGRATION_TERMINAL_STATES',
+            defaultValue: '',
+            description: 'Optional comma-separated terminal states confirmed in VBR'
+        )
+    }
+
+    options {
+        timeout(time: 20, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+    }
+
+    environment {
+        VENV_DIR = '.venv'
+        PIP_CACHE_DIR = "${WORKSPACE}/.pip-cache"
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                cleanWs()
+                checkout scm
+            }
+        }
+
+        stage('Package Layout') {
+            steps {
+                sh '''
+                    set -eu
+                    for file in \
+                        Jenkinsfile \
+                        Jenkinsfile-test \
+                        .gitignore \
+                        pytest.ini \
+                        requirements.txt \
+                        requirements-dev.txt \
+                        requirements.lock \
+                        requirements-dev.lock \
+                        vdr/__main__.py \
+                        vdr/templates/report.html.j2 \
+                        tests/test_em_integration.py
+                    do
+                        test -f "$file" || {
+                            echo "Missing required package file: $file"
+                            exit 1
+                        }
+                        echo "OK: $file"
+                    done
+                '''
+            }
+        }
+
+        stage('Setup Python 3.11') {
+            steps {
+                sh '''
+                    set -eu
+                    python3.11 -m venv "$VENV_DIR"
+                    python3.11 --version
+                    "$VENV_DIR/bin/pip" install \
+                        --require-hashes \
+                        --cache-dir "$PIP_CACHE_DIR" \
+                        -r requirements-dev.lock
+                    "$VENV_DIR/bin/python" -c \
+                        'import sys; sys.version_info >= (3, 10) or sys.exit("Python 3.10+ is required")'
+                '''
+            }
+        }
+
+        stage('Tests and Coverage') {
+            steps {
+                sh '''
+                    set -eu
+                    "$VENV_DIR/bin/python" -m pytest \
+                        tests \
+                        -v \
+                        --junitxml=test-results.xml
+                '''
+            }
+            post {
+                always {
+                    junit testResults: 'test-results.xml', allowEmptyResults: false
+                }
+            }
+        }
+
+        stage('Type Check') {
+            steps {
+                sh '''
+                    set -eu
+                    "$VENV_DIR/bin/python" -m mypy vdr
+                '''
+            }
+        }
+
+        stage('Zero-Tolerance Ruff Gates') {
+            steps {
+                sh '''
+                    set -eu
+                    "$VENV_DIR/bin/ruff" check vdr tests --select F401
+                    "$VENV_DIR/bin/ruff" check vdr --select S101
+                '''
+            }
+        }
+
+        stage('Live Enterprise Manager Assumptions') {
+            when {
+                expression { params.RUN_EM_INTEGRATION }
+            }
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'veeam-em-report',
+                        usernameVariable: 'VEEAM_EM_USER',
+                        passwordVariable: 'VEEAM_EM_PASSWORD'
+                    )
+                ]) {
+                    timeout(time: 15, unit: 'MINUTES') {
+                        sh '''
+                            set -eu
+                            echo "Live EM raw dumps will remain on this agent in .em-integration/raw; they are not archived."
+                            RUN_EM_INTEGRATION=true \
+                            EM_INTEGRATION_DUMP_DIR="$WORKSPACE/.em-integration/raw" \
+                            "$VENV_DIR/bin/python" -m pytest \
+                                tests/test_em_integration.py \
+                                -m integration \
+                                -v \
+                                --junitxml=em-integration-results.xml
+                        '''
+                    }
+                }
+            }
+            post {
+                always {
+                    junit testResults: 'em-integration-results.xml', allowEmptyResults: true
+                }
+            }
+        }
+    }
+}
